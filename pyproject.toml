@@ -1,0 +1,34 @@
+[project]
+name = "drafter-rlvr"
+version = "0.1.0"
+description = "Training MTP drafters with task-level verifier rewards for verifiable-output domains"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "torch>=2.5.0",
+    "transformers>=4.46.0",
+    "accelerate>=1.0.0",
+    "datasets>=3.0.0",
+    "peft>=0.13.0",
+    "numpy>=1.26.0",
+    "tqdm>=4.66.0",
+    "huggingface-hub>=0.26.0",
+    "safetensors>=0.4.0",
+    "sentencepiece>=0.2.0",
+    "protobuf>=4.25.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-timeout>=2.3.0",
+    "ruff>=0.7.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 30
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

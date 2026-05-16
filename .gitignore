@@ -1,0 +1,36 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.uv/
+.python-version
+
+# Data — do not commit
+data/raw/
+data/processed/
+*.jsonl
+*.csv
+*.tsv
+
+# Model artifacts
+adapters/*/
+!adapters/.gitkeep
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# HF cache
+.cache/
+
+# Results
+results/*.json
+results/*.png
+results/runs/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
