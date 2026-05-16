@@ -74,11 +74,19 @@ def evaluate(
     limit: int | None = None,
     out_dir: Path = Path("results"),
     seed: int = 0,
+    adapter_path: str | None = None,
+    tag: str | None = None,
 ) -> Path:
-    """Run a single baseline over a dataset; write a result JSON; return its path."""
-    assistant_id = ASSISTANT_MODEL_ID if baseline == 1 else None
-    print(f"Loading models (target={TARGET_MODEL_ID}, assistant={assistant_id}) ...")
-    infer = RegexInferencer(assistant_id=assistant_id)
+    """Run a single baseline over a dataset; write a result JSON; return its path.
+
+    baseline=0: target alone
+    baseline=1: target + drafter (vanilla, no adapter)
+    baseline>=2: target + drafter + adapter (specify --adapter)
+    """
+    assistant_id = ASSISTANT_MODEL_ID if baseline > 0 else None
+    print(f"Loading models (target={TARGET_MODEL_ID}, assistant={assistant_id}, "
+          f"adapter={adapter_path}) ...")
+    infer = RegexInferencer(assistant_id=assistant_id, adapter_path=adapter_path)
     print(f"Device: {infer.device}, dtype: {infer.dtype}")
 
     examples = _load_jsonl(dataset_path, limit=limit)
@@ -139,7 +147,8 @@ def evaluate(
     }
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"baseline{baseline}_{dataset_path.stem}_n{len(results)}.json"
+    name_tag = tag or f"baseline{baseline}"
+    out_path = out_dir / f"{name_tag}_{dataset_path.stem}_n{len(results)}.json"
     out_path.write_text(json.dumps(summary, indent=2))
 
     print(f"\n=== Baseline {baseline} on {dataset_path.name} (n={len(results)}) ===")
@@ -156,12 +165,20 @@ def evaluate(
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--dataset", required=True, type=Path)
-    p.add_argument("--baseline", required=True, type=int, choices=[0, 1])
+    p.add_argument("--baseline", required=True, type=int, choices=[0, 1, 2, 3, 4])
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--out-dir", type=Path, default=Path("results"))
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--adapter", type=str, default=None,
+                   help="path to .npz adapter checkpoint (required for baselines >= 2)")
+    p.add_argument("--tag", type=str, default=None,
+                   help="optional name tag for output filename (defaults to 'baseline{N}')")
     args = p.parse_args()
-    evaluate(args.dataset, args.baseline, limit=args.limit, out_dir=args.out_dir, seed=args.seed)
+    evaluate(
+        args.dataset, args.baseline,
+        limit=args.limit, out_dir=args.out_dir, seed=args.seed,
+        adapter_path=args.adapter, tag=args.tag,
+    )
     return 0
 
 

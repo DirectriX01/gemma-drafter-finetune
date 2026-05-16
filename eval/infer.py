@@ -16,6 +16,8 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+import mlx.core as mx
+from mlx.utils import tree_unflatten
 from mlx_vlm import generate, load
 from mlx_vlm.speculative.drafters import load_drafter
 
@@ -43,9 +45,11 @@ class RegexInferencer:
         self,
         target_id: str = TARGET_MODEL_ID,
         assistant_id: Optional[str] = None,
+        adapter_path: Optional[str] = None,
     ) -> None:
         self.target_id = target_id
         self.assistant_id = assistant_id
+        self.adapter_path = adapter_path
 
         self.model, self.processor = load(target_id)
 
@@ -53,6 +57,13 @@ class RegexInferencer:
         if assistant_id is not None:
             # `load_drafter` returns (drafter, kind) — kind is e.g. "mtp"
             self.drafter, _ = load_drafter(assistant_id, kind="mtp")
+            self.drafter.bind(self.model)
+            if adapter_path is not None:
+                weights_flat = mx.load(adapter_path)
+                weights = tree_unflatten(list(weights_flat.items()))
+                self.drafter.update(weights)
+                # Re-bind to restore the sparse `_lm_head_fn` after .update overwrites it
+                self.drafter.bind(self.model)
 
     @property
     def device(self) -> str:
