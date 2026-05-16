@@ -44,6 +44,8 @@ SPLITS = ("KB13", "NL-RX-Synth", "NL-RX-Turk")
 # DSL operators not supported by Python `re`.
 DSL_INTERSECTION = re.compile(r"(?<!\\)&")
 DSL_NEGATION = re.compile(r"(?<!\\)~\(")
+# Patterns with too many .* are exrex-pathological (long random strings, low signal).
+MULTI_WILDCARD = re.compile(r"\.\*.*\.\*.*\.\*")
 
 
 @dataclass
@@ -88,7 +90,7 @@ def _compiles_in_python_re(pattern: str) -> bool:
 
 
 def _sample_positives(
-    pattern: str, n: int, max_tries: int = 50, total_timeout_s: float = 2.0
+    pattern: str, n: int, max_tries: int = 20, total_timeout_s: float = 1.0
 ) -> list[str]:
     """Sample up to `n` unique positive matches for `pattern` via exrex.
 
@@ -102,7 +104,7 @@ def _sample_positives(
     try:
         while len(seen) < n and tries < max_tries:
             try:
-                s = exrex.getone(pattern, limit=8)
+                s = exrex.getone(pattern, limit=3)
             except _ExrexTimeout:
                 return []
             except Exception:  # noqa: BLE001 — exrex can blow up on weird patterns
@@ -129,6 +131,8 @@ def _build_examples(
     for ex in tqdm(raw, desc=f"sampling {raw[0].split}", unit="ex"):
         if _is_dsl_only(ex.gold_regex):
             continue
+        if MULTI_WILDCARD.search(ex.gold_regex):
+            continue  # pathological for exrex
         if not _compiles_in_python_re(ex.gold_regex):
             continue
         pos = _sample_positives(ex.gold_regex, n=n_pos)
