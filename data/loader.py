@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing as mp
 import random
 import re
-import signal
 import sys
 import urllib.request
 from dataclasses import dataclass
@@ -31,12 +31,13 @@ import exrex
 from tqdm import tqdm
 
 
-class _ExrexTimeout(Exception):
-    pass
-
-
-def _alarm(signum, frame):  # noqa: ARG001
-    raise _ExrexTimeout()
+# Module-level worker so it can be pickled / forked.
+def _exrex_worker(pattern: str, limit: int, q: "mp.queues.Queue") -> None:
+    try:
+        s = exrex.getone(pattern, limit=limit)
+        q.put(s)
+    except Exception:  # noqa: BLE001
+        q.put(None)
 
 REPO_BASE = "https://raw.githubusercontent.com/nicholaslocascio/deep-regex/master/datasets"
 SPLITS = ("KB13", "NL-RX-Synth", "NL-RX-Turk")
@@ -90,33 +91,41 @@ def _compiles_in_python_re(pattern: str) -> bool:
 
 
 def _sample_positives(
-    pattern: str, n: int, max_tries: int = 20, total_timeout_s: float = 1.0
+    pattern: str,
+    n: int,
+    max_tries: int = 20,
+    per_call_timeout_s: float = 0.5,
 ) -> list[str]:
-    """Sample up to `n` unique positive matches for `pattern` via exrex.
+    """Sample up to `n` unique positive matches for `pattern` via exrex, with subprocess
+    isolation for hard timeouts.
 
-    Caps generated string length to 100 chars to avoid pathological cases like `.*`.
-    Aborts after `total_timeout_s` wall-clock seconds — exrex can hang on certain patterns.
+    Each exrex.getone() runs in a forked child. If it doesn't return within
+    `per_call_timeout_s`, the child is killed and we move on. This is robust against
+    exrex's pure-Python tight loops that ignore SIGALRM.
+
+    Fork overhead on macOS is ~5-10 ms; with max_tries=20 and timeout=0.5 s, the
+    worst-case per-example cost is ~10 s but typical is ~50-100 ms.
     """
-    signal.signal(signal.SIGALRM, _alarm)
-    signal.setitimer(signal.ITIMER_REAL, total_timeout_s)
+    ctx = mp.get_context("fork")
     seen: set[str] = set()
-    tries = 0
-    try:
-        while len(seen) < n and tries < max_tries:
-            try:
-                s = exrex.getone(pattern, limit=3)
-            except _ExrexTimeout:
-                return []
-            except Exception:  # noqa: BLE001 — exrex can blow up on weird patterns
-                return []
-            tries += 1
-            if s is None or len(s) > 100:
-                continue
-            seen.add(s)
-    except _ExrexTimeout:
-        return []
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
+    for _ in range(max_tries):
+        if len(seen) >= n:
+            break
+        q = ctx.Queue()
+        p = ctx.Process(target=_exrex_worker, args=(pattern, 3, q))
+        p.start()
+        p.join(timeout=per_call_timeout_s)
+        if p.is_alive():
+            p.kill()
+            p.join()
+            continue
+        try:
+            s = q.get_nowait()
+        except Exception:  # noqa: BLE001 — empty queue
+            continue
+        if s is None or len(s) > 100:
+            continue
+        seen.add(s)
     return list(seen)
 
 
