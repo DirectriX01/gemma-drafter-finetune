@@ -68,6 +68,7 @@ def _sample_one_rollout(model, drafter, processor, prompt_text: str, temperature
         max_tokens=max_new_tokens,
         sampler=sampler,
         draft_model=drafter,
+        draft_kind="mtp",
     ):
         # stream_generate yields GenerationResponse objects with .text, .token, etc.
         if hasattr(chunk, "token"):
@@ -177,20 +178,20 @@ def main() -> int:
     eval_examples = _load_examples(args.eval)
     print(f"train={len(train_examples)} eval={len(eval_examples)}")
 
-    optimizer = optim.AdamW(learning_rate=args.lr, weight_decay=args.weight_decay)
+    # SGD: no internal state means optimizer.update is structurally simple. AdamW
+    # tripped MLX's tree_map after several updates (gradient tree structure shifts
+    # subtly between rollouts).
+    optimizer = optim.SGD(learning_rate=args.lr)
 
-    def rl_loss_fn(drafter, prompt_ids, rollouts: list, advantages: list):
-        """REINFORCE loss aggregated over K rollouts."""
-        loss = mx.array(0.0)
-        for rollout_ids, adv in zip(rollouts, advantages):
-            full_ids = mx.concatenate([prompt_ids, rollout_ids], axis=-1)
-            target_hidden, shared_kv = _target_forward(target, full_ids)
-            lp = _drafter_seq_logprob(drafter, prompt_ids, rollout_ids,
-                                       target_hidden, shared_kv)
-            loss = loss - adv * lp
-        return loss / max(1, len(rollouts))
+    def single_rollout_loss(drafter, prompt_ids, rollout_ids, advantage):
+        """Per-rollout REINFORCE term. Single scalar loss → single grad call per rollout."""
+        full_ids = mx.concatenate([prompt_ids, rollout_ids], axis=-1)
+        target_hidden, shared_kv = _target_forward(target, full_ids)
+        lp = _drafter_seq_logprob(drafter, prompt_ids, rollout_ids,
+                                   target_hidden, shared_kv)
+        return -advantage * lp
 
-    grad_fn = nn.value_and_grad(drafter, rl_loss_fn)
+    grad_fn = nn.value_and_grad(drafter, single_rollout_loss)
     log_path = args.out / "train_log.jsonl"
     log_path.unlink(missing_ok=True)
 
@@ -240,11 +241,22 @@ def main() -> int:
                                          "mean_reward": mean_r, "skipped": True}) + "\n")
                 continue
 
-            # --- Compute REINFORCE loss + grads ---
-            loss, grads = grad_fn(drafter, prompt_ids, rollouts_ids, advantages)
-            optimizer.update(drafter, grads)
-            mx.eval(drafter.parameters(), optimizer.state)
+            # --- K micro-steps: one optimizer.update per rollout (advantage-scaled) ---
+            # Avoids manual grad-tree accumulation which broke MLX's tree_map.
+            total_loss = 0.0
+            n_updates = 0
+            for r_ids, adv in zip(rollouts_ids, advantages):
+                if adv == 0.0:
+                    continue
+                # Scale advantage by 1/K so the effective LR matches a single REINFORCE step.
+                scaled_adv = mx.array(adv / args.K)
+                loss_k, grads_k = grad_fn(drafter, prompt_ids, r_ids, scaled_adv)
+                optimizer.update(drafter, grads_k)
+                mx.eval(drafter.parameters(), optimizer.state)
+                total_loss += float(loss_k.item())
+                n_updates += 1
             mx.clear_cache()
+            loss = mx.array(total_loss / max(1, n_updates))
 
             epoch_rewards.append(mean_r)
             step += 1
