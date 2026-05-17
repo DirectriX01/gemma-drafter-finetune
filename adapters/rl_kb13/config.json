@@ -1,0 +1,13 @@
+{
+  "train": "data/processed/KB13_train_100.jsonl",
+  "eval": "data/processed/KB13_eval.jsonl",
+  "out": "adapters/rl_kb13",
+  "epochs": 1,
+  "K": 4,
+  "temperature": 0.7,
+  "max_new_tokens": 24,
+  "lr": 5e-05,
+  "weight_decay": 0.01,
+  "seed": 0,
+  "init_adapter": "adapters/sft_sparse_kb13/drafter_epoch3.npz"
+}
