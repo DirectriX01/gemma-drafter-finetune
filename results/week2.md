@@ -29,19 +29,33 @@ W3.
 |---|---|---|---|
 | SFT (CE on gold) | 5.44 → 0.06 | 4.34 → 0.37 | 25 min |
 | Accept-only (KL) | 16.5 → 6.06 | 9.99 → 6.62 | 29 min |
-| Reward-shaped (α=β=0.5) | _running_ | _running_ | ~29 min |
+| Reward-shaped (α=β=0.5) | 7.69 → 3.51 | — → KL=4.01 CE=3.71 | 34 min |
 
-Both finished trainings show clean convergence on their own loss curves.
+All three converged on their own loss curves.
 
 ## Inference results (KB13_eval, n=102)
 
 | Baseline | Description | pass@1 | F1 | tok/s | new tok | compile err |
 |---|---|---|---|---|---|---|
-| 0 | target alone | 0.176 | 0.390 ± 0.076 | **6.18 ± 0.77** | 8.0 | 1.0% |
+| 0 | target alone | 0.176 | 0.390 ± 0.076 | 6.18 ± 0.77 | 8.0 | 1.0% |
 | 1 | target + vanilla drafter | 0.176 | 0.390 ± 0.076 | 6.00 ± 0.79 | 8.0 | 1.0% |
 | 2 | target + SFT-trained drafter | 0.176 | 0.390 ± 0.076 | 6.19 ± 0.77 | 8.0 | 1.0% |
 | 3 | target + KL-trained drafter | 0.176 | 0.390 ± 0.076 | **2.99 ± 0.40** | 8.0 | 1.0% |
-| 4 | target + reward-shaped drafter | _pending_ | | | | |
+| 4 | target + reward-shaped drafter (α=β=0.5) | 0.176 | 0.390 ± 0.076 | **6.37 ± 0.79** | 8.0 | 1.0% |
+
+**Speed ranking:** B4 ≈ B2 ≈ B0 ≈ B1 ≫ B3.
+
+The reward-shaped drafter (B4) recovered the speed lost by B3. Adding the
+CE-on-gold term acts as a **regularizer** that prevents the dense/sparse-head training
+mismatch from breaking inference. The CE term anchors the drafter's preferred tokens
+to gold tokens (which are also in the sparse head's materialized vocab subset
+typically), while the KL term still pushes toward target's distribution. The
+combination is robust where pure KL is not.
+
+CIs overlap between B4 (6.37 ± 0.79) and B1 (6.00 ± 0.79), so we cannot claim B4
+strictly beats B1 in tok/s on n=102. We *can* claim:
+- B4 does **not** suffer the B3 degradation (well outside CI).
+- The acceptance-only objective (B3) is **strictly harmful** without a regularizer.
 
 ## Two important findings
 
@@ -81,6 +95,15 @@ training-inference mismatch**. The fix is non-obvious — either:
 
 This finding is itself publishable as a measurement / analysis paper, independent of
 whether the verifier-shaped contribution lands.
+
+## Third finding (after B4 landed)
+
+**Reward-shaping (B4) acts as a regularizer that rescues the speed-degraded B3.**
+
+This is the first piece of evidence that the verifier-signal axis adds value — not in
+the way we hypothesized (correctness improvement, which is invariant), but as a
+training-time stabilizer that prevents the sparse-head mismatch from corrupting the
+drafter. Whether this generalizes outside KB13's small scale needs W3 ablations.
 
 ## What this means for the project
 
