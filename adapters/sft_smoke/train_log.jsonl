@@ -1,0 +1,6 @@
+{"event": "step", "step": 1, "epoch": 0, "loss": 3.5625}
+{"event": "step", "step": 2, "epoch": 0, "loss": 8.625}
+{"event": "step", "step": 3, "epoch": 0, "loss": 6.9375}
+{"event": "step", "step": 4, "epoch": 0, "loss": 6.5625}
+{"event": "step", "step": 5, "epoch": 0, "loss": 1.4921875}
+{"event": "eval", "step": 5, "loss": 4.3375}
